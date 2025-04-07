@@ -2,6 +2,7 @@ import os
 import pandas as pd
 import json
 import duckdb
+import ast  
 
 class CargaDeArchivos:
     def __init__(self):
@@ -61,6 +62,32 @@ class CargaDeArchivos:
         except Exception as e:
             print(f"Error al cargar los datos de las actividades: {e}")
 
+    def carga_variants(self):
+        """Carga el archivo variants.json en un DataFrame y lo registra en DuckDB."""
+        try:
+            ruta_variants = "./Data/variants.json"
+            with open(ruta_variants, "r", encoding="utf-8") as file:
+                data = json.load(file)
+                df = pd.DataFrame(data.get("results", []))
+
+            # Convert string representations of lists/tuples to actual Python objects
+            df["activities"] = df["activities"].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
+            df["cases"] = df["cases"].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
+
+            self.variants_df = df
+
+            # DuckDB doesn't support arrays natively, so store as JSON text if needed
+            df["activities"] = df["activities"].apply(json.dumps)
+            df["cases"] = df["cases"].apply(json.dumps)
+
+            self.conn.register("variants", df)
+            self.conn.execute("CREATE TABLE variants AS SELECT * FROM variants")
+
+            return df
+
+        except Exception as e:
+            print(f"Error al cargar los datos de los variantes: {e}")
+
     def dataBase(self, activity, case):
         """Carga los DataFrames en DuckDB asegurando que los timestamps estén correctamente formateados."""
         try:
@@ -98,5 +125,6 @@ class CargaDeArchivos:
 
         if cases is not None and not cases.empty and activities is not None and not activities.empty:
             self.dataBase(activities, cases)
+            self.carga_variants()
         else:
             print("No se pudieron cargar los datos correctamente.")
