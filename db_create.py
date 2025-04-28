@@ -236,6 +236,61 @@ class CargaDeArchivos:
         row_count = self.conn.execute("SELECT COUNT(*) FROM variants").fetchone()[0]
         print(f"Loaded {row_count} variants")
 
+    def process_grouped(self):
+            print("Loading grouped data in chunks...")
+            self.conn.execute("DROP TABLE IF EXISTS grouped")
+
+            first_chunk = True
+            for chunk_df in self.load_json_in_chunks("Grouped.json"):
+                if chunk_df.empty:
+                    continue
+
+                self.conn.register("temp_grouped", chunk_df)
+
+                if first_chunk:
+                    self.conn.execute("CREATE TABLE grouped AS SELECT * FROM temp_grouped")
+                    first_chunk = False
+                else:
+                    self.conn.execute("INSERT INTO grouped SELECT * FROM temp_grouped")
+
+                self.conn.execute("DROP VIEW temp_grouped")
+
+            row_count = self.conn.execute("SELECT COUNT(*) FROM grouped").fetchone()[0]
+            print(f"Loaded {row_count} grouped entries")
+
+    def process_invoices(self):
+        print("Loading invoices data in chunks...")
+        self.conn.execute("DROP TABLE IF EXISTS invoices")
+
+        first_chunk = True
+        for chunk_df in self.load_json_in_chunks("Invoice.json"):
+            if chunk_df.empty:
+                continue
+
+            if "case" in chunk_df.columns:
+                case_df = pd.json_normalize(chunk_df["case"])
+                case_df.columns = [f"case_{col}" for col in case_df.columns]
+                chunk_df = pd.concat([chunk_df.drop(columns=["case"]), case_df], axis=1)
+
+            datetime_cols = ["date", "pay_date", "case_order_date", "case_estimated_delivery", "case_delivery"]
+            for col in datetime_cols:
+                if col in chunk_df.columns:
+                    chunk_df[col] = pd.to_datetime(chunk_df[col], utc=True).dt.tz_convert(None)
+
+            self.conn.register("temp_invoices", chunk_df)
+
+            if first_chunk:
+                self.conn.execute("CREATE TABLE invoices AS SELECT * FROM temp_invoices")
+                first_chunk = False
+            else:
+                self.conn.execute("INSERT INTO invoices SELECT * FROM temp_invoices")
+
+            self.conn.execute("DROP VIEW temp_invoices")
+
+        row_count = self.conn.execute("SELECT COUNT(*) FROM invoices").fetchone()[0]
+        print(f"Loaded {row_count} invoices")
+
+
 
 
     def inspect_database(self):
@@ -265,11 +320,13 @@ class CargaDeArchivos:
             print(sample.to_string(index=False))
 
     def run(self):
-        """Execute the full loading process"""
         self.process_cases()
         self.process_activities()
         self.process_variants()
+        self.process_grouped()
+        self.process_invoices()
         self.inspect_database()
+
 
 # Usage
 if __name__ == "__main__":
