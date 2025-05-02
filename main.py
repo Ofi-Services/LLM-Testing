@@ -10,6 +10,8 @@ import pandas as pd
 from transformers import AutoTokenizer
 from huggingface_hub import login
 from fastapi import FastAPI, Request
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 
 class State(TypedDict):
@@ -225,7 +227,7 @@ p1_p= """
 
     - **Deviations**:  
     All variants with a different `id` from the most frequent one are deviations.  
-    Use `UNNEST(activities)` in a subquery and compare step-by-step.
+    When asked for deviation point, just retrieve the full list of activities from the most frequent variant and compare with the other variants.
 
     - **Activity Durations Along Most Frequent Path**:  
     1. Extract activities from the most frequent variant using `UNNEST(activities)` in the `FROM` clause.
@@ -262,7 +264,6 @@ p1_p= """
 
     - Return **only** the SQL query. No markdown, no tags, no explanation.
     - Never guess values. Always infer based on the data and schema above.
-
     """
 p2_p= """### Database Schema
 
@@ -306,128 +307,128 @@ p2_p= """### Database Schema
             - "variants"."activities" corresponds to the ordered "activities"."name" values for those cases.
             """
 p1_i= """
-You are an SQL assistant specialized in DuckDB. Your task is to generate accurate SQL queries based on natural language questions, following the schema and rules below.
+        You are an SQL assistant specialized in DuckDB. Your task is to generate accurate SQL queries based on natural language questions, following the schema and rules below.
 
-### Schema (Aliased)
+        ### Schema (Aliased)
 
-    - **grouped (g)**  
-    - group_id (VARCHAR): Unique identifier for each group (PK)  
-    - amount_overpaid (BIGINT): Total overpaid amount for the group  
-    - itemCount (BIGINT): Number of items in the group  
-    - date (VARCHAR): Date of the group  
-    - pattern (VARCHAR): Pattern type for the group 'Similar Value','Similar Reference','Exact Match','Similar Date','Similar Vendor','Multiple'
-    - open (BOOLEAN): Status of the group (open or closed)  
-    - confidence (VARCHAR): Confidence level for detecting the pattern (e.g., "High", "Medium", "Low")  
-    - items (STRUCT[]): Array of items within the group, each containing:
-        - **id (INTEGER)**: Item identifier (FK → invoices.id)
-        - **case (STRUCT)**: Contains case details, such as:
-            - id (VARCHAR): Case identifier  
-            - order_date (VARCHAR): Order date for the case  
-            - employee_id (VARCHAR): Employee ID handling the case  
-            - branch (VARCHAR): Branch handling the case  
-            - supplier (VARCHAR): Supplier associated with the case  
-            - avg_time (DOUBLE): Average time for the case  
-            - estimated_delivery (VARCHAR): Estimated delivery date for the case  
-            - delivery (VARCHAR): Actual delivery date for the case  
-            - on_time (BOOLEAN): Whether the case was delivered on time  
-            - in_full (BOOLEAN): Whether the case was delivered in full  
-            - number_of_items (INTEGER): Number of items in the case  
-            - ft_items (INTEGER): Number of full-time items in the case  
-            - total_price (INTEGER): Total price of the case  
-        - date (VARCHAR): Date of the item  
-        - unit_price (VARCHAR): Unit price of the item  
-        - quantity (INTEGER): Quantity of the item  
-        - value (VARCHAR): Value of the item  
-        - pattern (VARCHAR): Pattern type for the group 'Similar Value','Similar Reference','Exact Match','Similar Date','Similar Vendor','Multiple'  
-        - open (BOOLEAN): Status of the item (open or closed)  
-        - group_id (VARCHAR): Group identifier (FK → grouped.group_id)  
-        - confidence (VARCHAR): Confidence level for the item’s pattern (e.g., "high", "medium", "low")  
-        - description (VARCHAR): Description of the item  
-        - payment_method (VARCHAR): Payment method used for the item  
-        - pay_date (VARCHAR): Payment date of the item  
-        - special_instructions (VARCHAR): Special instructions for the item  
-        - accuracy (INTEGER): Accuracy of the item’s data matching
+            - **grouped (g)**  
+            - group_id (VARCHAR): Unique identifier for each group (PK)  
+            - amount_overpaid (BIGINT): Total overpaid amount for the group  
+            - itemCount (BIGINT): Number of items in the group  
+            - date (VARCHAR): Date of the group  
+            - pattern (VARCHAR): Pattern type for the group 'Similar Value','Similar Reference','Exact Match','Similar Date','Similar Vendor','Multiple'
+            - open (BOOLEAN): Status of the group (open or closed)  
+            - confidence (VARCHAR): Confidence level for detecting the pattern (e.g., "High", "Medium", "Low")  
+            - items (STRUCT[]): Array of items within the group, each containing:
+                - **id (INTEGER)**: Item identifier (FK → invoices.id)
+                - **case (STRUCT)**: Contains case details, such as:
+                    - id (VARCHAR): Case identifier  
+                    - order_date (VARCHAR): Order date for the case  
+                    - employee_id (VARCHAR): Employee ID handling the case  
+                    - branch (VARCHAR): Branch handling the case  
+                    - supplier (VARCHAR): Supplier associated with the case  
+                    - avg_time (DOUBLE): Average time for the case  
+                    - estimated_delivery (VARCHAR): Estimated delivery date for the case  
+                    - delivery (VARCHAR): Actual delivery date for the case  
+                    - on_time (BOOLEAN): Whether the case was delivered on time  
+                    - in_full (BOOLEAN): Whether the case was delivered in full  
+                    - number_of_items (INTEGER): Number of items in the case  
+                    - ft_items (INTEGER): Number of full-time items in the case  
+                    - total_price (INTEGER): Total price of the case  
+                - date (VARCHAR): Date of the item  
+                - unit_price (VARCHAR): Unit price of the item  
+                - quantity (INTEGER): Quantity of the item  
+                - value (VARCHAR): Value of the item  
+                - pattern (VARCHAR): Pattern type for the group 'Similar Value','Similar Reference','Exact Match','Similar Date','Similar Vendor','Multiple'  
+                - open (BOOLEAN): Status of the item (open or closed)  
+                - group_id (VARCHAR): Group identifier (FK → grouped.group_id)  
+                - confidence (VARCHAR): Confidence level for the item’s pattern (e.g., "high", "medium", "low")  
+                - description (VARCHAR): Description of the item  
+                - payment_method (VARCHAR): Payment method used for the item  
+                - pay_date (VARCHAR): Payment date of the item  
+                - special_instructions (VARCHAR): Special instructions for the item  
+                - accuracy (INTEGER): Accuracy of the item’s data matching
 
-    - **invoices (i)**  
-    - id (BIGINT): Invoice identifier (PK)  
-    - date (TIMESTAMP_NS): Date and time the invoice was issued  
-    - unit_price (VARCHAR): Unit price of the item in the invoice  
-    - quantity (BIGINT): Number of items in the invoice  
-    - value (VARCHAR): Total value of the invoice  
-    - pattern (VARCHAR): Pattern type for the group 'Similar Value','Similar Reference','Exact Match','Similar Date','Similar Vendor','Multiple'
-    - open (BOOLEAN): Status of the invoice (open or closed)  
-    - group_id (VARCHAR): Group identifier (FK → grouped.group_id)  
-    - confidence (VARCHAR): Confidence level for the invoice's pattern (e.g., "High", "Medium", "Low")  
-    - description (VARCHAR): Description of the invoice  
-    - payment_method (VARCHAR): Method used for payment  
-    - pay_date (TIMESTAMP_NS): Date and time the invoice was paid  
-    - special_instructions (VARCHAR): Any special instructions for the invoice  
-    - accuracy (BIGINT): Accuracy of the invoice's data matching  
-    - case_id (VARCHAR): Case identifier associated with the invoice  
-    - case_order_date (TIMESTAMP_NS): Order date of the case  
-    - case_employee_id (VARCHAR): Employee associated with the case  
-    - case_branch (VARCHAR): Branch where the case was handled  
-    - case_supplier (VARCHAR): Supplier associated with the case  
-    - case_avg_time (DOUBLE): Average time for the case  
-    - case_estimated_delivery (TIMESTAMP_NS): Estimated delivery date for the case  
-    - case_delivery (TIMESTAMP_NS): Actual delivery date for the case  
-    - case_on_time (BOOLEAN): Whether the case was delivered on time  
-    - case_in_full (BOOLEAN): Whether the case was delivered in full  
-    - case_number_of_items (BIGINT): Number of items in the case  
-    - case_ft_items (BIGINT): Number of full-time items in the case  
-    - case_total_price (BIGINT): Total price of the case
+            - **invoices (i)**  
+            - id (BIGINT): Invoice identifier (PK)  
+            - date (TIMESTAMP_NS): Date and time the invoice was issued  
+            - unit_price (VARCHAR): Unit price of the item in the invoice  
+            - quantity (BIGINT): Number of items in the invoice  
+            - value (VARCHAR): Total value of the invoice  
+            - pattern (VARCHAR): Pattern type for the group 'Similar Value','Similar Reference','Exact Match','Similar Date','Similar Vendor','Multiple'
+            - open (BOOLEAN): Status of the invoice (open or closed)  
+            - group_id (VARCHAR): Group identifier (FK → grouped.group_id)  
+            - confidence (VARCHAR): Confidence level for the invoice's pattern (e.g., "High", "Medium", "Low")  
+            - description (VARCHAR): Description of the invoice  
+            - payment_method (VARCHAR): Method used for payment  
+            - pay_date (TIMESTAMP_NS): Date and time the invoice was paid  
+            - special_instructions (VARCHAR): Any special instructions for the invoice  
+            - accuracy (BIGINT): Accuracy of the invoice's data matching  
+            - case_id (VARCHAR): Case identifier associated with the invoice  
+            - case_order_date (TIMESTAMP_NS): Order date of the case  
+            - case_employee_id (VARCHAR): Employee associated with the case  
+            - case_branch (VARCHAR): Branch where the case was handled  
+            - case_supplier (VARCHAR): Supplier associated with the case  
+            - case_avg_time (DOUBLE): Average time for the case  
+            - case_estimated_delivery (TIMESTAMP_NS): Estimated delivery date for the case  
+            - case_delivery (TIMESTAMP_NS): Actual delivery date for the case  
+            - case_on_time (BOOLEAN): Whether the case was delivered on time  
+            - case_in_full (BOOLEAN): Whether the case was delivered in full  
+            - case_number_of_items (BIGINT): Number of items in the case  
+            - case_ft_items (BIGINT): Number of full-time items in the case  
+            - case_total_price (BIGINT): Total price of the case
 
-### Query Guidelines
+        ### Query Guidelines
 
-1. **Prefer Direct Tables**:  
-   Use `grouped (g)` or `invoices (i)` directly unless item-level fields are explicitly needed.
+        1. **Prefer Direct Tables**:  
+        Use `grouped (g)` or `invoices (i)` directly unless item-level fields are explicitly needed.
 
-2. **UNNEST Only When Necessary**:
-   - Only use `UNNEST(g.items) AS item` when accessing nested fields (e.g., `item.case.supplier`, `item.unit_price`, etc.)
-   - After unnesting, access fields as `item.field` or `item.case.supplier`, **not** `item.unnest.field`.
+        2. **UNNEST Only When Necessary**:
+        - Only use `UNNEST(g.items) AS item` when accessing nested fields (e.g., `item.case.supplier`, `item.unit_price`, etc.)
+        - After unnesting, access fields as `item.field` or `item.case.supplier`, **not** `item.unnest.field`.
 
-3. **Nesting and Access Rules**:
-   - To access supplier from `grouped`, unnest items and use:  
-     ```sql
-     FROM grouped g, UNNEST(g.items) AS item
-     WHERE item.case.supplier = 'Example'
-     ```
-   - Avoid referencing nested fields without unnesting first.
+        3. **Nesting and Access Rules**:
+        - To access supplier from `grouped`, unnest items and use:  
+            ```sql
+            FROM grouped g, UNNEST(g.items) AS item
+            WHERE item.case.supplier = 'Example'
+            ```
+        - Avoid referencing nested fields without unnesting first.
 
-4. **Case Sensitivity**:
-   - Use exact case for values:
-     - Confidence: 'High', 'Medium', 'Low'
-     - Pattern: 'Similar Value', 'Similar Reference', 'Exact Match', 'Similar Date', 'Similar Vendor', 'Multiple'
+        4. **Case Sensitivity**:
+        - Use exact case for values:
+            - Confidence: 'High', 'Medium', 'Low'
+            - Pattern: 'Similar Value', 'Similar Reference', 'Exact Match', 'Similar Date', 'Similar Vendor', 'Multiple'
 
-5. **Use Table Aliases**:
-   - Always use `g.` for `grouped`, `i.` for `invoices`, and `item.` after unnesting.
+        5. **Use Table Aliases**:
+        - Always use `g.` for `grouped`, `i.` for `invoices`, and `item.` after unnesting.
 
-6. **Use TRIM() for Comparisons**:
-   - For text comparisons like pattern or supplier, wrap with `TRIM()`.  
-     Example: `TRIM(item.case.supplier) = 'VendorName'`
+        6. **Use TRIM() for Comparisons**:
+        - For text comparisons like pattern or supplier, wrap with `TRIM()`.  
+            Example: `TRIM(item.case.supplier) = 'VendorName'`
 
-7. **Use IN / = ANY for Multiple Matches**:
-   - Use `pattern = ANY (['Value1', 'Value2'])` or `IN (...)` instead of OR chains.
+        7. **Use IN / = ANY for Multiple Matches**:
+        - Use `pattern = ANY (['Value1', 'Value2'])` or `IN (...)` instead of OR chains.
 
-8. **GROUP BY Nested Fields**:
-   - If grouping by nested fields like supplier, first unnest, then group by `item.case.supplier`.
+        8. **GROUP BY Nested Fields**:
+        - If grouping by nested fields like supplier, first unnest, then group by `item.case.supplier`.
 
-9. **Aggregation and Filtering**:
-   - Use `ORDER BY ... LIMIT 1` instead of `> ALL(...)`
-   - Filter early with WHERE clauses to improve performance.
+        9. **Aggregation and Filtering**:
+        - Use `ORDER BY ... LIMIT 1` instead of `> ALL(...)`
+        - Filter early with WHERE clauses to improve performance.
 
-10. **Alternative Access**:
-   - Use `invoices` for simpler flat queries (e.g., `i.case_supplier`).
+        10. **Alternative Access**:
+        - Use `invoices` for simpler flat queries (e.g., `i.case_supplier`).
 
----
+        ---
 
-### Output Rules
+        ### Output Rules
 
-- ❌ Do NOT explain the query.
-- ✅ Only return the SQL query (no markdown, no comments, no formatting).
-- ❌ Do NOT guess field names.
-- ✅ Always respect the provided schema and capitalization.
-"""
+        - ❌ Do NOT explain the query.
+        - ✅ Only return the SQL query (no markdown, no comments, no formatting).
+        - ❌ Do NOT guess field names.
+        - ✅ Always respect the provided schema and capitalization.
+        """
 
 p2_i= """ 
     ### Schema (Aliased)
@@ -527,156 +528,53 @@ def check_relevance(state: State):
     print(f"Chat history for relevance check:\n{chat_history}")
     # System prompt including instructions on chat history usage
     system = f"""
-        You are an assistant that determines whether a given question is related to querying the following database schema. 
+        You are a helpful assistant working for a business intelligence tool. Your job is to determine if a user's message is relevant to the business datasets used by the assistant. The assistant answers only business-related questions that can be answered using SQL queries over structured tables.
+
+        ## When to Consider a Question Relevant
+        A question is relevant if it can be answered using data from the database. Relevant questions often involve:
+        - Metrics, KPIs, or business values
+        - Processes, durations, frequencies, or variant analysis
+        - Invoices, vendors, items, dates, payment terms
+        - Any reference to structured data the assistant has access to
+
         A question is considered **relevant** only if it is structured in a way that could be used to extract data from the database.
-        General conversations, greetings, and small talk are **not relevant**, even if they contain words related to business or databases.
+
+        ## When a Question is NOT Relevant
+        A question is **not relevant** if:
+        - It is personal, fictional, or unrelated to the datasets
+        - It is vague, humorous, or purely conversational
+        - It cannot be answered using the schema below
+
+        Examples of **not relevant** questions:
+        - "Hi"
+        - "What’s your favorite food?"
+        - "Tell me a joke"
+        - "Write a haiku about invoices"
+        - "How is your day going?"
 
         ---
-        ### Infer Implicit References:
-        If a question uses **implicit or vague references** like:
-        - "Who has the most cases?"
-        - "Which one is better?"
-        - "How long does it take?"
 
-        ...then:
-        **Use the database schema to resolve what "who", "which", or "it" most likely refers to.**
-        For example:
-        - "Who has the most cases?" → likely refers to **broker** or **creator** in the "cases" table.
-        - "Where do most claims happen?" → likely refers to **branch**.
-        - "How long does it take?" → likely refers to **durations** (avg_time, insurance_start → insurance_end, etc).
+        ### Schema Summary
 
-        Assume the **most contextually plausible interpretation** of vague terms.
+        The database supports two business domains:
 
-        ---
-        ### How to Use Chat History:
-        - If the user's question is a **follow-up to a previous relevant question**, consider it relevant if it maintains the context.
-        - If the conversation was **not relevant before**, and the new question is vague or generic, it remains **not relevant**.
-        - Do **not** assume relevance unless the question clearly indicates a database query.
+        1. **Process Mining Use Case**:
+        - Tables: `cases`, `activity`, `variants`
+        - Key topics: case durations, activity sequences, variants, average time, brokers, clients, case creators, timestamps, process deviations.
+
+        2. **Duplicate Invoice Checker Use Case**:
+        - Tables: `invoices`, `grouped`
+        - Key topics: invoice values, vendors, overpaid amounts, delivery delays, duplicate detection patterns (e.g., same vendor and reference), item groups, payment terms, accuracy scores.
+
+        Any user question that targets these types of data is considered relevant.
 
         ---
-        ### Database Schema  
-        #### Table: "cases"
-        - "id" (VARCHAR): Primary key.
-        - "insurance" (BIGINT): Foreign key to insurance.
-        - "avg_time" (DOUBLE): Duration (seconds) from case initiation to closure.
-        - "type" (VARCHAR): Insurance category.
-        - "branch" (VARCHAR): Policy branch.
-        - "ramo" (VARCHAR): Coverage type.
-        - "broker" (VARCHAR): Broker for the policy.
-        - "state" (VARCHAR): Current case state.
-        - "client" (VARCHAR): Client who bought the insurance.
-        - "creator" (VARCHAR): Employee managing the case.
-        - "value" (BIGINT): Insurance monetary value.
-        - "approved" (BOOLEAN): TRUE if approved, else FALSE.
-        - "insurance_creation" (TIMESTAMP_NS): Policy creation timestamp.
-        - "insurance_start" (TIMESTAMP_NS): Coverage start timestamp.
-        - "insurance_end" (TIMESTAMP_NS): Coverage end timestamp.
 
-        #### Table: "activity"
-        - "id" (BIGINT): Primary key.
-        - "case" (VARCHAR): Foreign key to "cases"."id".
-        - "timestamp" (TIMESTAMP_NS): Activity timestamp.
-        - "name" (VARCHAR): Name of the activity.
-        - "case_index" (BIGINT): Alias for "id".
-        - "tpt" (DOUBLE): Activity duration (seconds).
+        ### Output Format
 
-        #### Table: "variants"
-        - "id" (BIGINT): Primary key representing a unique variant (i.e., a specific path).
-        - "activities" (VARCHAR): Ordered list of activities representing the exact sequence of events in the variant.
-        - "cases" (VARCHAR): List of case IDs (as strings) that followed this variant path. Each entry corresponds to a "cases"."id".
-        - "number_cases" (BIGINT): Total number of cases that followed this variant.
-        - "percentage" (DOUBLE): Proportion (0–100%) of all cases that followed this variant.
-        - "avg_time" (DOUBLE): Average total duration (in seconds) of cases following this variant.
-
-        ### Table "grouped"  
-        - group_id (VARCHAR): Unique identifier for each group (PK)  
-        - amount_overpaid (BIGINT): Total overpaid amount for the group  
-        - itemCount (BIGINT): Number of items in the group  
-        - date (VARCHAR): Date of the group  
-        - pattern (VARCHAR): Pattern type for the group (e.g., similar vendor, similar reference)  
-        - open (BOOLEAN): Status of the group (open or closed)  
-        - confidence (VARCHAR): Confidence level for detecting the pattern (e.g., "high", "medium", "low")  
-        - items (STRUCT[]): Array of items within the group, each containing:
-            - **id (INTEGER)**: Item identifier (FK → invoices.id)
-            - **case (STRUCT)**: Contains case details, such as:
-                - id (VARCHAR): Case identifier  
-                - order_date (VARCHAR): Order date for the case  
-                - employee_id (VARCHAR): Employee ID handling the case  
-                - branch (VARCHAR): Branch handling the case  
-                - supplier (VARCHAR): Supplier associated with the case  
-                - avg_time (DOUBLE): Average time for the case  
-                - estimated_delivery (VARCHAR): Estimated delivery date for the case  
-                - delivery (VARCHAR): Actual delivery date for the case  
-                - on_time (BOOLEAN): Whether the case was delivered on time  
-                - in_full (BOOLEAN): Whether the case was delivered in full  
-                - number_of_items (INTEGER): Number of items in the case  
-                - ft_items (INTEGER): Number of full-time items in the case  
-                - total_price (INTEGER): Total price of the case  
-            - date (VARCHAR): Date of the item  
-            - unit_price (VARCHAR): Unit price of the item  
-            - quantity (INTEGER): Quantity of the item  
-            - value (VARCHAR): Value of the item  
-            - pattern (VARCHAR): Pattern type for the item (e.g., similar vendor, similar reference)  
-            - open (BOOLEAN): Status of the item (open or closed)  
-            - group_id (VARCHAR): Group identifier (FK → grouped.group_id)  
-            - confidence (VARCHAR): Confidence level for the item’s pattern (e.g., "high", "medium", "low")  
-            - description (VARCHAR): Description of the item  
-            - payment_method (VARCHAR): Payment method used for the item  
-            - pay_date (VARCHAR): Payment date of the item  
-            - special_instructions (VARCHAR): Special instructions for the item  
-            - accuracy (INTEGER): Accuracy of the item’s data matching
-
-        ### Table "invoices"   
-        - id (BIGINT): Invoice identifier (PK)  
-        - date (TIMESTAMP_NS): Date and time the invoice was issued  
-        - unit_price (VARCHAR): Unit price of the item in the invoice  
-        - quantity (BIGINT): Number of items in the invoice  
-        - value (VARCHAR): Total value of the invoice  
-        - pattern (VARCHAR): Pattern type for the invoice (e.g., similar vendor, similar reference)  
-        - open (BOOLEAN): Status of the invoice (open or closed)  
-        - group_id (VARCHAR): Group identifier (FK → grouped.group_id)  
-        - confidence (VARCHAR): Confidence level for the invoice's pattern (e.g., "high", "medium", "low")  
-        - description (VARCHAR): Description of the invoice  
-        - payment_method (VARCHAR): Method used for payment  
-        - pay_date (TIMESTAMP_NS): Date and time the invoice was paid  
-        - special_instructions (VARCHAR): Any special instructions for the invoice  
-        - accuracy (BIGINT): Accuracy of the invoice's data matching  
-        - case_id (VARCHAR): Case identifier associated with the invoice  
-        - case_order_date (TIMESTAMP_NS): Order date of the case  
-        - case_employee_id (VARCHAR): Employee associated with the case  
-        - case_branch (VARCHAR): Branch where the case was handled  
-        - case_supplier (VARCHAR): Supplier associated with the case  
-        - case_avg_time (DOUBLE): Average time for the case  
-        - case_estimated_delivery (TIMESTAMP_NS): Estimated delivery date for the case  
-        - case_delivery (TIMESTAMP_NS): Actual delivery date for the case  
-        - case_on_time (BOOLEAN): Whether the case was delivered on time  
-        - case_in_full (BOOLEAN): Whether the case was delivered in full  
-        - case_number_of_items (BIGINT): Number of items in the case  
-        - case_ft_items (BIGINT): Number of full-time items in the case  
-        - case_total_price (BIGINT): Total price of the case
-
-        **Relations:**
-        - "invoices"."ID_PROVEEDOR" is related to "grouped"."group_id" for grouping the invoices.
-        - "grouped"."items" contains references to "invoices"."NUMERO_DE_FACTURA" to group invoices together by their IDs.
-
-        ---
-        ### Relevance Criteria:
-        - A question is **"relevant"** if it queries any concept present in the schema: cases, activities, durations, brokers, clients, values, etc.
-        - **Business insight questions** (e.g., client revenue, broker performance, trends) and questions about **duplicate invoices** (e.g., patterns, amount overpaid, confidence) are relevant.
-        - **Process mining-related questions** (e.g., analyzing case flows, activity durations, and variant analysis) are also relevant.
-        - **Questions about both variants, activities, or case flows** that can be extracted from the schema **or** **invoice detection scenarios** are relevant.
-        - Questions that cannot be reasonably expressed as a query over the schema are **"not_relevant"**.
-        - Casual language, greetings, jokes, or unrelated topics are **"not_relevant"**.
-
-        ---
-        ### Chat History (Last Exchanges):  
-        {chat_history}
-
-        ---
-        ### Response Format (STRICT)
-        - Respond with exactly one word:
-        - `"relevant"`
-        - `"not_relevant"`
+        Respond only with one of the following:
+        - `relevant`
+        - `not_relevant`
         Do **not** include explanations or additional commentary.
         """
 
@@ -726,48 +624,65 @@ def reformat_question(state: State):
     chat_history= relevant_entries(chat_history_entries)  # Get the last 3 relevant entries
 
     system_prompt = """
-    You are a business-focused assistant specializing in process mining and supplier invoice deduplication analytics.
-    Your goal is to interpret ambiguous or complex user questions and convert them into clear, self-contained, measurable prompts for a SQL-capable agent, tailored to the selected use case (process mining or supplier invoice deduplication).
- 
-    ### Task 1: Reformat Vague or Indirect Questions
-    If the question is vague (e.g., "And the invoices?", "Any duplicates?") or phrased indirectly ("I wonder if..."), rewrite it as a fully clear and self-contained analytical question. Use the context provided in the chat history and the use case (process mining or supplier invoice deduplication).
-    - Normalize time expressions such as "last month", "this week", or "recently" into explicit phrases like "in the last 30 days" or "in March 2025".
-    - Resolve references like "those", "they", or "that" using context from the chat history, ensuring alignment with the use case (e.g., cases for process mining, duplicate invoices for invoice deduplication).
-    - If the question is implicit or easily inferred from the data, do not decompose it into sub-questions.
- 
-    ### Task 2: Decompose Multi-Part or Analytical Questions
-    If the question contains multiple aspects (e.g., comparisons, multiple KPIs, deviations vs. standard paths for process mining, or duplicate invoice criteria for invoices), decompose it into clear, measurable, self-contained sub-questions.
-    - Identify when a question contains comparative logic (e.g., "vs", "compare", "difference between") and split accordingly, considering the use case (e.g., comparing case durations or invoice duplication metrics).
-    - For process mining, if the question mentions deviations, identify the reference path (typically the most frequent variant) and ask what diverges from it and where.
-    - For supplier invoices, focus on detecting duplicate invoices by evaluating the accuracy (high means that is the exact invoice, low means that the probability of being same invoice is low) and Decompose questions to check these fields, prioritizing Confidence = 'High' (accuracy > 95%) to confirm duplicates.
-    - For invoice deduplication, break questions into steps that examine:
-      - Similar Reference: Check for matching or near-matching reference numbers.
-      - Exact Match: Verify if invoice details (e.g., amount, date) are identical.
-      - Similar Vendor: Identify invoices from the same or similar suppliers.
-      - Confidence: Confirm duplicates only when Confidence = 'High'.
- 
-    ### Task 3: Ensure Actionable Metric Framing
-    Whenever possible, reframe subjective or abstract queries into questions that can be answered with measurable metrics, tailored to the use case. For example:
-    - Process mining: "Is onboarding taking too long?" → "What is the average duration for onboarding cases?"
-    - Process mining: "Where are the biggest delays?" → "Which activity has the highest average time between steps?"
-    - Supplier invoices: "Are there duplicate invoices?" → "Which invoices have Confidence = 'High' for Similar Reference or Exact Match?"
-    - Supplier invoices: "Do we have repeated payments?" → "Which invoices share Similar Vendor and Exact Match with Confidence = 'High'?"
- 
-    ### Use Case:
-    - Process Mining: Questions relate to cases, activities, and variants (e.g., case duration, activity frequency).
-    - Supplier Invoice Deduplication: Questions focus on identifying duplicate invoices using fields: Similar Reference (matching reference numbers), Exact Match (identical invoice details), Similar Vendor (same or similar suppliers), and Confidence (High indicates >95% accuracy for duplicates).
- 
-    ### Chat History (for context resolution):
-    {chat_history}
- 
-    **Response Format:**
-    If the question is already clear and singular, return it unchanged.
-    If it requires decomposition or clarification, return in JSON:
- 
-    {{
-      "sub_questions": ["First rephrased question", "Second one", ...]
-    }}
-    """
+        You are a business-focused assistant specializing in process mining and supplier invoice deduplication analytics.
+        Your goal is to interpret ambiguous or complex user questions and convert them into clear, self-contained, measurable prompts for a SQL-capable agent, tailored to the selected use case (process mining or supplier invoice deduplication).
+
+        ### Task 1: Reformat Vague or Indirect Questions
+        If the question is vague (e.g., "And the invoices?", "Any duplicates?") or phrased indirectly ("I wonder if..."), rewrite it as a fully clear and self-contained analytical question. Use the context provided in the chat history and the use case (process mining or supplier invoice deduplication).
+        - Normalize time expressions such as "last month", "this week", or "recently" into explicit phrases like "in the last 30 days" or "in March 2025".
+        - Resolve references like "those", "they", or "that" using context from the chat history, ensuring alignment with the use case (e.g., cases for process mining, duplicate invoices for invoice deduplication).
+        - If the question is implicit or easily inferred from the data, do not decompose it into sub-questions.
+
+        ### Task 2: Decompose Multi-Part or Analytical Questions
+        If the question contains multiple aspects (e.g., comparisons, multiple KPIs, deviations vs. standard paths for process mining, or duplicate invoice criteria for invoices), decompose it into clear, measurable, self-contained sub-questions.
+        - Identify when a question contains comparative logic (e.g., "vs", "compare", "difference between") and split accordingly, considering the use case (e.g., comparing case durations or invoice duplication metrics).
+        - For process mining, if the question mentions deviations, identify the reference path (typically the most frequent variant) and ask what diverges from it and where.
+        - For invoice deduplication, break questions into steps that examine:
+        - Pattern types:
+            - 'Exact Match': Identical invoice details.
+            - 'Similar Reference': Matching or near-matching reference numbers.
+            - 'Similar Vendor': Same or similar suppliers.
+            - 'Similar Date', 'Similar Value': Close match in those fields.
+            - 'Multiple': Combination of patterns.
+        - Confidence:
+            - 'High': Confidence ≥ 95%
+            - 'Medium'
+            - 'Low'
+        - Treat invoices with pattern = 'Exact Match' and Confidence = 'High' as **confirmed duplicates**.
+        - Treat invoices with Confidence = 'High' (any pattern except 'Exact Match') as **possible duplicates**.
+        - When the question asks **"which vendor has the most duplicates"**, split the analysis into:
+        - Confirmed duplicates → pattern = 'Exact Match' and Confidence = 'High'.
+        - Possible duplicates → Confidence = 'High' and pattern in any of: 'Similar Reference', 'Similar Vendor', 'Similar Value', 'Similar Date', 'Multiple'.
+
+        ### Task 3: Ensure Actionable Metric Framing
+        Whenever possible, reframe subjective or abstract queries into questions that can be answered with measurable metrics, tailored to the use case. For example:
+        - Process mining: "Is onboarding taking too long?" → "What is the average duration for onboarding cases?"
+        - Process mining: "Where are the biggest delays?" → "Which activity has the highest average time between steps?"
+        - Supplier invoices: "Are there duplicate invoices?" → 
+        - "Which invoices have pattern = 'Exact Match' and Confidence = 'High'?"
+        - "Which invoices have Confidence = 'High' with other patterns?"
+        - Supplier invoices: "Which supplier has the most duplicated invoices?" → 
+        - "Which vendor has the most invoices with pattern = 'Exact Match' and Confidence = 'High'?"
+        - "Which vendor has the most invoices with any pattern and Confidence = 'High'?"
+
+        ### Use Case:
+        - Process Mining: Questions relate to cases, activities, and variants (e.g., case duration, activity frequency).
+        - Supplier Invoice Deduplication: Questions focus on identifying duplicate invoices using:
+        - pattern: 'Similar Value', 'Similar Reference', 'Exact Match', 'Similar Date', 'Similar Vendor', 'Multiple' (case-sensitive)
+        - confidence: 'High', 'Medium', 'Low' (first-letter capitalized)
+
+        ### Chat History (for context resolution):
+        {chat_history}
+
+        **Response Format:**
+        If the question is already clear and singular, return it unchanged.
+        If it requires decomposition or clarification, return in JSON:
+
+        {{
+        "sub_questions": ["First rephrased question", "Second one", ...]
+        }}
+        """
+
  
     llm = OllamaLLM(model="mistral:latest", temperature=0.1)  
 
@@ -790,9 +705,25 @@ def reformat_question(state: State):
         else:
             state["questions"] = result.strip()  # Store single reformatted question
     except json.JSONDecodeError:
-        state["questions"] = result.strip()  # Store as plain text if no JSON structure
-
-    print(f"Processed Question(s): {state['questions']}")
+        # Look for the 'sub_questions' part in the result
+        sub_questions_match = re.search(r'"sub_questions"\s*:\s*(\[\s*(.*?)\s*\])', result, re.DOTALL)
+        
+        if sub_questions_match:
+            # Extract and clean up the sub_questions list (remove extra spaces and newlines)
+            sub_questions_str = sub_questions_match.group(1)
+            # Try to manually fix any missing commas in the sub-questions list
+            # Insert commas between question items (if any)
+            cleaned_sub_questions = re.sub(r'("\s*[^,"]+)(\s*"\s*[^,"]+)', r'\1,\2', sub_questions_str)
+            cleaned_sub_questions = cleaned_sub_questions.replace('",\n "', '", "').replace('\n', ' ').replace('"\n', '"')
+            
+            try:
+                # Attempt to parse the cleaned version of sub_questions
+                cleaned_parsed_result = json.loads('{"sub_questions": ' + cleaned_sub_questions + '}')
+                state["questions"]= cleaned_parsed_result["sub_questions"]
+            except json.JSONDecodeError:
+                # In case it still fails, attempt to split based on common delimiters (e.g., '?')
+                questions = sub_questions_str.split('?')
+                state["questions"]= [q.strip() + '?' for q in questions if q.strip()]
 
     return state
 
@@ -1034,7 +965,7 @@ def generate_serious_answer(state: State):
     )
 
     system = f"""
-    You are ✨SOFIA✨, an AI assistant designed by the AI dream team at OFI Services. 
+    You are ✨SOFIA✨, an AI business assistant. 
     Your task is to:
     1. Answer the user's **main question** using the SQL results from the **sub-questions**.
     2. Provide business insights based on the query results.
@@ -1114,9 +1045,25 @@ def regenerate_query(state):
             Provide a **corrected** SQL query that runs successfully in the following database schema.
             """
         part_2= prompts_sql_generation[state["use_case"]][1]  # Select the appropriate prompt based on use case
+        sql_fix_prompt = ChatPromptTemplate.from_messages([(
+            "system", 
+            part1+part_2),
+            ("human", "Fix the query and return only the corrected SQL, no explanations."),
+        ])
+
+        fixer = sql_fix_prompt | llm 
+        # Pass the query and error message to the SQL model for correction
+        corrected_query = fixer.invoke({"query": query, "error": error})
+        
+        # Extract only the SQL code from a markdown block like ```sql ... ``` 
+        corrected_query = re.sub(r"```sql\s*(.*?)\s*```", r"\1", corrected_query.strip(), flags=re.DOTALL | re.IGNORECASE)
+
+        state["sql_querys"][index] = corrected_query
+        print(f"✅ Fixed SQL query: {corrected_query}")
 
     state["attempts"] += 1
     return state
+
 
 
 def summarize_results(state: dict) -> dict:
@@ -1189,7 +1136,7 @@ def generate_funny_response(state: State):
     chat_history_entries = state.get("chat_history", [])
     chat_history = non_relevant_entries(chat_history_entries) # Get the last 3 non-relevant entries
     print(f"Chat history for funny response:\n{chat_history}")
-    system = f"""You are ✨SOFIA✨, a charming and funny assistant designed by the AI team at OFI Services. 
+    system = f"""You are ✨SOFIA✨, a charming and funny assistant. 
     You respond in a playful and lighthearted manner. Your responses should always be fun, engaging, and humorous. 
     If the user doesn't know you yet, introduce yourself!
     
@@ -1225,7 +1172,8 @@ def check_attempts_router(state: State):
     Returns:
         str: The next node in the workflow.
     """
-    if state["attempts"] < 3:
+    if state["attempts"] <= 3:
+        print(f"Attempt {state['attempts']}")
         return "Retries < 3"
     else:
         error_state= state["sql_error"]
@@ -1459,13 +1407,23 @@ def message_api(message):
     # Print the chat history in a well-formatted way
     return chat_history
 
+
+
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # O especifica tus dominios
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.post("/")
 
 async def create_item(request: Request):
-    print(request)
     data = await request.json()  # Accede al payload JSON directamente
     question= data.get("message")
     history= message_api(question)  # Llama a la función message_api con el mensaje del payload
     return {"answer": history[1]}  # Devuelve el historial de chat actualizado como respuesta JSON
+
