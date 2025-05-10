@@ -2,25 +2,35 @@ from langchain_ollama import OllamaLLM
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from typing_extensions import TypedDict
+from transformers import AutoTokenizer
 import pandas as pd
 import re
+import logging
 
-# ANALYSIS TOOL
+logger = logging.getLogger(__name__)
+
+# === THINKING  WORKER  ===
+#  
 def run_think_task(task: str, context: str = "", use_case: str = "") -> str:
-    llm = OllamaLLM(model="mistral:latest", temperature=0.0)
-    system_prompt = """
-    You are a reasoning engine. Your job is to logically analyze a task, optionally using provided context,
-    and generate a clear, accurate response. Be concise, factual, and business-relevant.
-    """
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", system_prompt),
-        ("human", "Context: {context}\nTask: {task}"),
-    ])
-    chain = prompt | llm | StrOutputParser()
-    result = chain.invoke({"task": task, "context": context})
-    return result.strip()
+    try:
+        llm = OllamaLLM(model="mistral:latest", temperature=0.0)
+        system_prompt = """
+        You are a reasoning engine. Your job is to logically analyze a task, optionally using provided context,
+        and generate a clear, accurate response. Be concise, factual, and business-relevant.
+        """
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", system_prompt),
+            ("human", "Context: {context}\nTask: {task}"),
+        ])
+        chain = prompt | llm | StrOutputParser()
+        result = chain.invoke({"task": task, "context": context})
+        return result.strip()
+    except Exception as e:
+        logger.error(f"Error during thinking worker: {e}")
+        return "An error occurred while processing the task."
 
-# SQL TOOL
+# === SQL WORKER ===
+# == SQL WORKER STATE ==
 class State(TypedDict):
     question: str
     db_conn: any
@@ -34,22 +44,31 @@ class State(TypedDict):
     system_prompt: str
     repair_prompt: str
 
-from transformers import AutoTokenizer
+# == SQL WORKER NODES ==
 
 def count_tokens(text: str, tokenizer) -> int:
-    return len(tokenizer.encode(text))
+    try: 
+        length = len(tokenizer.encode(text))
+    except Exception as e:
+        logger.error(f"Error counting tokens: {e}")
+        length = 0
+    return length
 
-def identify_question_type(q: str) -> str:
-    q = q.lower()
-    if any(w in q for w in ["average", "mean", "duration", "time taken", "how long"]):
-        return "average"
-    if any(w in q for w in ["distribution", "frequency", "histogram"]):
-        return "distribution"
-    if any(w in q for w in ["trend", "over time", "change", "evolution"]):
-        return "trend"
-    if any(w in q for w in ["most", "top", "highest", "least", "lowest", "compare"]):
-        return "ranking"
-    return "general"
+def identify_question_type(question: str) -> str:
+    try: 
+        question = question.lower()
+        if any(word in question for word in ["average", "mean", "duration", "time taken", "how long"]):
+            return "average"
+        if any(word in question for word in ["distribution", "frequency", "histogram"]):
+            return "distribution"
+        if any(word in question for word in ["trend", "over time", "change", "evolution"]):
+            return "trend"
+        if any(word in question for word in ["most", "top", "highest", "least", "lowest", "compare"]):
+            return "ranking"
+        return "general"
+    except Exception as e:
+        logger.error(f"Error identifying question type: {e}")
+        raise
 
 def summarize_dataframe(df: pd.DataFrame, question_type: str) -> str:
     summary = ""
