@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 #  
 def run_think_task(task: str, context: str = "", use_case: str = "") -> str:
     try:
-        llm = OllamaLLM(model="mistral:latest", temperature=0.0)
+        llm = OllamaLLM(model="qwen3:30b-a3b", temperature=0.0, enable_thinking=False)
         system_prompt = """
         You are a reasoning engine. Your job is to logically analyze a task, optionally using provided context,
         and generate a clear, accurate response. Be concise, factual, and business-relevant.
@@ -111,7 +111,7 @@ def convert_nl_to_sql(state: State) -> State:
     try:
         question = state["question"]
         system = state["system_prompt"]
-        llm = OllamaLLM(model="mistral-nemo:latest", temperature=0.0)
+        llm = OllamaLLM(model="qwen3:30b-a3b", temperature=0.0, enable_thinking=False)
         convert_prompt = ChatPromptTemplate.from_messages([
             ("system", system),
             ("human", "Question: {question}"),
@@ -177,7 +177,7 @@ def generate_serious_answer(state: State) -> State:
         Context: {question}
         SQL Results: {query_result}
         """
-        llm = OllamaLLM(model="phi4:latest", temperature=0.0, max_tokens=200)
+        llm = OllamaLLM(model="qwen3:30b-a3b", temperature=0.0, max_tokens=200, enable_thinking=False)
         response = ChatPromptTemplate.from_messages([
             ("system", system),
             ("human", f"Question: {question}"),
@@ -194,7 +194,7 @@ def regenerate_query(state: State) -> State:
         error = state["query_result"]
         query = state["sql_query"]
         repair_prompt = state["repair_prompt"]
-        llm = OllamaLLM(model="mistral:latest", temperature=0.0)
+        llm = OllamaLLM(model="qwen3:30b-a3b", temperature=0.0, enable_thinking=False)
         print(f"⚠️ Fixing SQL query: {query}")
         print(f"🔍 Error encountered: {error}")
         sql_fix_prompt = ChatPromptTemplate.from_messages([
