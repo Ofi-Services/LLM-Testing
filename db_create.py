@@ -34,7 +34,7 @@ class CargaDeArchivos:
 
     def process_cases(self):
         """Process Case.json in chunks and load into DuckDB with proper schema."""
-        print("Loading cases data in chunks...")
+    
         self.conn.execute("DROP TABLE IF EXISTS cases")
 
         first_chunk = True
@@ -123,13 +123,10 @@ class CargaDeArchivos:
             # Drop temp view after using it
             self.conn.execute("DROP VIEW temp_cases")
 
-        row_count = self.conn.execute("SELECT COUNT(*) FROM cases").fetchone()[0]
-        print(f"Loaded {row_count} cases")
 
 
     def process_activities(self):
         """Process Activity.json in chunks and load into DuckDB with proper schema."""
-        print("Loading activities data in chunks...")
         self.conn.execute("DROP TABLE IF EXISTS activities")
         
         first_chunk = True
@@ -199,13 +196,11 @@ class CargaDeArchivos:
             # Drop temporary view
             self.conn.execute("DROP VIEW temp_activities")
 
-        row_count = self.conn.execute("SELECT COUNT(*) FROM activities").fetchone()[0]
-        print(f"Loaded {row_count} activities")
 
 
     def process_variants(self):
         """Process Variant.json in chunks and load into DuckDB with proper schema."""
-        print("Loading variants data in chunks...")
+
         self.conn.execute("DROP TABLE IF EXISTS variants")
 
         first_chunk = True
@@ -233,11 +228,9 @@ class CargaDeArchivos:
             # Drop temp view
             self.conn.execute("DROP VIEW temp_variants")
 
-        row_count = self.conn.execute("SELECT COUNT(*) FROM variants").fetchone()[0]
-        print(f"Loaded {row_count} variants")
+
 
     def process_grouped(self):
-            print("Loading grouped data in chunks...")
             self.conn.execute("DROP TABLE IF EXISTS grouped")
 
             first_chunk = True
@@ -255,11 +248,8 @@ class CargaDeArchivos:
 
                 self.conn.execute("DROP VIEW temp_grouped")
 
-            row_count = self.conn.execute("SELECT COUNT(*) FROM grouped").fetchone()[0]
-            print(f"Loaded {row_count} grouped entries")
 
     def process_invoices(self):
-        print("Loading invoices data in chunks...")
         self.conn.execute("DROP TABLE IF EXISTS invoices")
 
         first_chunk = True
@@ -287,8 +277,6 @@ class CargaDeArchivos:
 
             self.conn.execute("DROP VIEW temp_invoices")
 
-        row_count = self.conn.execute("SELECT COUNT(*) FROM invoices").fetchone()[0]
-        print(f"Loaded {row_count} invoices")
 
 
 
@@ -304,7 +292,6 @@ class CargaDeArchivos:
 
         for (table,) in tables:
             print(f"\n=== {table.upper()} ===")
-            
             # Show structure
             print("\nStructure:")
             structure = self.conn.execute(f"""
@@ -325,7 +312,7 @@ class CargaDeArchivos:
         self.process_variants()
         self.process_grouped()
         self.process_invoices()
-        self.inspect_database()
+        #self.inspect_database()
 
 
 # Usage
