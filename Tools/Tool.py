@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 def run_think_task(task: str, context: str = "", use_case: str = "") -> str:
     try:
         llm = OllamaLLM(model="qwen3:30b-a3b", temperature=0.0, enable_thinking=False)
-        system_prompt = """
+        system_prompt = """ /no_think
         You are a reasoning engine. Your job is to logically analyze a task, optionally using provided context,
         and generate a clear, accurate response. Be concise, factual, and business-relevant.
         """
@@ -169,7 +169,7 @@ def generate_serious_answer(state: State) -> State:
     try:
         question = state["question"]
         query_result = state["query_result"]
-        system = f"""
+        system = f""" /no_think
         You are ✨SOFIA✨, an AI business assistant.
         Your task is to:
         1. Answer the user's **main question** using the SQL results from the **sub-questions**.
