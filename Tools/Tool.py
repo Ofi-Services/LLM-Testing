@@ -13,8 +13,9 @@ logger = logging.getLogger(__name__)
 # === THINKING  WORKER  ===
 #  
 def run_think_task(task: str, context: str = "", use_case: str = "") -> str:
+    logger.info("Running run_think_task")
     try:
-        llm = OllamaLLM(model="qwen3:30b-a3b", temperature=0.0, enable_thinking=False)
+        llm = OllamaLLM(model="qwen3:8b", temperature=0.0, enable_thinking=False)
         system_prompt = """ /no_think
         You are a reasoning engine. Your job is to logically analyze a task, optionally using provided context,
         and generate a clear, accurate response. Be concise, factual, and business-relevant.
@@ -111,7 +112,7 @@ def convert_nl_to_sql(state: State) -> State:
     try:
         question = state["question"]
         system = state["system_prompt"]
-        llm = OllamaLLM(model="qwen3:30b-a3b", temperature=0.0, enable_thinking=False)
+        llm = OllamaLLM(model="qwen3:8b", temperature=0.0, enable_thinking=False)
         convert_prompt = ChatPromptTemplate.from_messages([
             ("system", system),
             ("human", "Question: {question}"),
@@ -177,7 +178,7 @@ def generate_serious_answer(state: State) -> State:
         Context: {question}
         SQL Results: {query_result}
         """
-        llm = OllamaLLM(model="qwen3:30b-a3b", temperature=0.0, max_tokens=200, enable_thinking=False)
+        llm = OllamaLLM(model="qwen3:8b", temperature=0.0, max_tokens=200, enable_thinking=False)
         response = ChatPromptTemplate.from_messages([
             ("system", system),
             ("human", f"Question: {question}"),
@@ -194,7 +195,7 @@ def regenerate_query(state: State) -> State:
         error = state["query_result"]
         query = state["sql_query"]
         repair_prompt = state["repair_prompt"]
-        llm = OllamaLLM(model="qwen3:30b-a3b", temperature=0.0, enable_thinking=False)
+        llm = OllamaLLM(model="qwen3:8b", temperature=0.0, enable_thinking=False)
         print(f"⚠️ Fixing SQL query: {query}")
         print(f"🔍 Error encountered: {error}")
         sql_fix_prompt = ChatPromptTemplate.from_messages([
@@ -249,6 +250,7 @@ def execute_sql_router(state: State) -> str:
 
 # == SQL WORKER WORFLOW, COMPILE, AND EXECUTE ==
 def run_sql_workflow(question, db_conn, use_case, tokenizer, context, system_prompt, repair_prompt):
+    logger.info("Running run_sql_workflow")
     try:
         workflow = StateGraph(State)
         workflow.add_node("Generates SQL queries", convert_nl_to_sql)
