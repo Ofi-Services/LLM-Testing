@@ -45,6 +45,7 @@ class State(TypedDict):
     tokenizer: any
     system_prompt: str
     repair_prompt: str
+    use_case: None
 
 # == SQL WORKER NODES ==
 
@@ -132,6 +133,38 @@ def convert_nl_to_sql(state: State) -> State:
     except Exception as e:
         logger.error(f"Error converting NL to SQL: {e}")
         return state
+
+# Classification:
+
+## ==Classification Node==
+def classify_use_case(state: State) -> State:
+    try:
+        question = state['question']
+        classification_prompt = """
+        Classify the use case of the next question. 
+        Your options are strictly the next ones:
+        "0" for Process Mining
+        "1" for Invoice Analysis
+        {{question}}
+
+        Return ONLY the exact number of the use case, no explanations.
+        """
+        llm = OllamaLLM(model="qwen3:8b", temperature=0.0, enable_thinking=False)
+        classifier = ChatPromptTemplate.from_messages([
+            ("system", classification_prompt),
+            ("human", "{question}")
+        ]) | llm | StrOutputParser()
+
+        use_case = classifier.invoke({"question": question}).strip()
+        print(f'Exitoso el use case {use_case}')
+        if use_case not in ["0", "1"]:
+            logger.warning(f"Use case not valid detected: {use_case}")
+            use_case = "0"  # by default
+        return state
+        
+    except Exception as e:
+        logger.error(f"Error during classification node: {e}", exc_info=True)
+        raise
 
 def execute_sql(state: State) -> State:
     db_conn = state["db_conn"]
@@ -253,13 +286,16 @@ def run_sql_workflow(question, db_conn, use_case, tokenizer, context, system_pro
     logger.info("Running run_sql_workflow")
     try:
         workflow = StateGraph(State)
+        ## Classifier
+        workflow.add_node("Classify use case", classify_use_case)
         workflow.add_node("Generates SQL queries", convert_nl_to_sql)
         workflow.add_node("Executes SQL", execute_sql)
         workflow.add_node("Regenerate Error-Queries", regenerate_query)
         workflow.add_node("Answer Relevant Question", generate_serious_answer)
         workflow.add_node("Stops due to max Iterations", end_max_iterations)
         workflow.add_node("Summarizes Results", summarize_results)
-        workflow.set_entry_point("Generates SQL queries")
+        workflow.set_entry_point("Classify use case")
+        workflow.add_edge('Classify use case', "Generates SQL queries")
         workflow.add_edge("Generates SQL queries", "Executes SQL")
         workflow.add_conditional_edges("Executes SQL", execute_sql_router, {
             "Success": "Summarizes Results",
@@ -289,8 +325,10 @@ def run_sql_workflow(question, db_conn, use_case, tokenizer, context, system_pro
     except Exception as e:
         logger.error(f"Error executing SQL worker: {e}")
         logger.warning(f"{e}")
-        result["final_answer"] = "An error occurred while executing the SQL workflow."
-        result["query_result"] = "An error occurred while executing the SQL workflow."
+        result = {'final_answer':None,
+                 'query_result':None}
+        # result["final_answer"] = "An error occurred while executing the SQL workflow."
+        # result["query_result"] = "An error occurred while executing the SQL workflow."
 
         return result["final_answer"], result["query_result"]
 
