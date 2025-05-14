@@ -10,6 +10,17 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# === AUXILIARY FUNCTIONS === 
+
+
+def remove_think_tags(text: str) -> str:
+    try:
+        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+        return text.strip()
+    except Exception as e:
+        logger.error(f"Error removing think tags: {e}")
+        return text.strip()
+
 # === THINKING  WORKER  ===
 #  
 def run_think_task(task: str, context: str = "", use_case: str = "") -> str:
@@ -26,7 +37,8 @@ def run_think_task(task: str, context: str = "", use_case: str = "") -> str:
         ])
         chain = prompt | llm | StrOutputParser()
         result = chain.invoke({"task": task, "context": context})
-        return result.strip()
+        result = remove_think_tags(result)
+        return result
     except Exception as e:
         logger.error(f"Error during thinking worker: {e}")
         return "An error occurred while processing the task."
@@ -121,6 +133,7 @@ def convert_nl_to_sql(state: State) -> State:
         sql_generator = convert_prompt | llm
         print(f"Converting question to SQL: {question}")
         result = sql_generator.invoke({"question": question})
+        result = remove_think_tags(result)
         message = re.sub(r'^\s*```sql\s*|\s*```$', '', result.strip(), flags=re.IGNORECASE)
         message = re.sub(r"confidence\s*=\s*'high'", "confidence = 'High'", message, flags=re.IGNORECASE)
         message = re.sub(r"confidence\s*=\s*'medium'", "confidence = 'Medium'", message, flags=re.IGNORECASE)
@@ -156,7 +169,7 @@ def classify_use_case(state: State) -> State:
         ]) | llm | StrOutputParser()
 
         use_case = classifier.invoke({"question": question}).strip()
-        print(f'Exitoso el use case {use_case}')
+        use_case = remove_think_tags(use_case)
         if use_case not in ["0", "1"]:
             logger.warning(f"Use case not valid detected: {use_case}")
             use_case = "0"  # by default
@@ -212,11 +225,12 @@ def generate_serious_answer(state: State) -> State:
         SQL Results: {query_result}
         """
         llm = OllamaLLM(model="qwen3:8b", temperature=0.0, max_tokens=200, enable_thinking=False)
-        response = ChatPromptTemplate.from_messages([
+        model = ChatPromptTemplate.from_messages([
             ("system", system),
             ("human", f"Question: {question}"),
         ]) | llm | StrOutputParser()
-        state["final_answer"] = response.invoke({})
+        response = model.invoke({})
+        state["final_answer"] = remove_think_tags(response)
         return state
     except Exception as e:  
         logger.warning(f"Error generating serious answer: {e}")
@@ -237,6 +251,7 @@ def regenerate_query(state: State) -> State:
         ])
         fixer = sql_fix_prompt | llm
         corrected_query = fixer.invoke({"query": query, "error": error})
+        corrected_query = remove_think_tags(corrected_query)
         corrected_query = re.sub(r"```sql\s*(.*?)\s*```", r"\1", corrected_query.strip(), flags=re.DOTALL | re.IGNORECASE)
         state["sql_query"] = corrected_query
         state["attempts"] += 1
@@ -332,4 +347,4 @@ def run_sql_workflow(question, db_conn, use_case, tokenizer, context, system_pro
 
         return result["final_answer"], result["query_result"]
 
-__all__ = ["run_sql_workflow", "run_think_task"]
+__all__ = ["run_sql_workflow", "run_think_task", "remove_think_tags"]
