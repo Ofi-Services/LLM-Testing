@@ -10,6 +10,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Prompts
+from Tools.Prompts import p1_i, p1_p, p2_i, p2_p, system_prompt, classification_prompt
+
 # === AUXILIARY FUNCTIONS === 
 
 
@@ -18,19 +21,19 @@ def remove_think_tags(text: str) -> str:
         text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
         return text.strip()
     except Exception as e:
-        logger.error(f"Error removing think tags: {e}")
+        logger.exception(f"Error removing think tags: {e}")
         return text.strip()
 
 # === THINKING  WORKER  ===
 #  
-def run_think_task(task: str, context: str = "", use_case: str = "") -> str:
+def run_think_task(task: str, context: str = "") -> str:
     logger.info("Running run_think_task")
     try:
         llm = OllamaLLM(model="qwen3:8b", temperature=0.0, enable_thinking=False)
-        system_prompt = """ /no_think
-        You are a reasoning engine. Your job is to logically analyze a task, optionally using provided context,
-        and generate a clear, accurate response. Be concise, factual, and business-relevant.
-        """
+        #system_prompt = """ /no_think
+        #You are a reasoning engine. Your job is to logically analyze a task, optionally using provided context,
+        #and generate a clear, accurate response. Be concise, factual, and business-relevant.
+        #"""
         prompt = ChatPromptTemplate.from_messages([
             ("system", system_prompt),
             ("human", "Context: {context}\nTask: {task}"),
@@ -40,7 +43,7 @@ def run_think_task(task: str, context: str = "", use_case: str = "") -> str:
         result = remove_think_tags(result)
         return result
     except Exception as e:
-        logger.error(f"Error during thinking worker: {e}")
+        logger.exception(f"Error during thinking worker: {e}")
         return "An error occurred while processing the task."
 
 # === SQL WORKER ===
@@ -55,9 +58,12 @@ class State(TypedDict):
     final_answer: str
     attempts: int
     tokenizer: any
-    system_prompt: str
-    repair_prompt: str
     use_case: None
+
+
+# PROMPTS PER USE CASE #
+prompts_sql_generation= {"0":[p1_p,p2_p],
+            "1":[p1_i,p2_i]}
 
 # == SQL WORKER NODES ==
 
@@ -65,7 +71,7 @@ def count_tokens(text: str, tokenizer) -> int:
     try: 
         length = len(tokenizer.encode(text))
     except Exception as e:
-        logger.error(f"Error counting tokens: {e}")
+        logger.exception(f"Error counting tokens: {e}")
         length = 0
     return length
 
@@ -82,7 +88,7 @@ def identify_question_type(question: str) -> str:
             return "ranking"
         return "general"
     except Exception as e:
-        logger.error(f"Error identifying question type: {e}")
+        logger.exception(f"Error identifying question type: {e}")
         raise
 
 def summarize_dataframe(df: pd.DataFrame, question_type: str) -> str:
@@ -117,14 +123,15 @@ def summarize_dataframe(df: pd.DataFrame, question_type: str) -> str:
             summary += df.describe(include='all').to_string()
         return summary
     except Exception as e:
-        logger.error(f"Error summarizing dataframe: {e}")
+        logger.exception(f"Error summarizing dataframe: {e}")
         return "Error occurred while summarizing the dataframe."
     
 
 def convert_nl_to_sql(state: State) -> State:
     try:
         question = state["question"]
-        system = state["system_prompt"]
+        use_case = state["use_case"]
+        system= prompts_sql_generation[use_case][0]
         llm = OllamaLLM(model="qwen3:8b", temperature=0.0, enable_thinking=False)
         convert_prompt = ChatPromptTemplate.from_messages([
             ("system", system),
@@ -144,8 +151,8 @@ def convert_nl_to_sql(state: State) -> State:
         state["attempts"] = 0
         return state
     except Exception as e:
-        logger.error(f"Error converting NL to SQL: {e}")
-        return state
+        logger.exception(f"Error converting NL to SQL: {e}")
+        raise
 
 # Classification:
 
@@ -153,15 +160,6 @@ def convert_nl_to_sql(state: State) -> State:
 def classify_use_case(state: State) -> State:
     try:
         question = state['question']
-        classification_prompt = """
-        Classify the use case of the next question. 
-        Your options are strictly the next ones:
-        "0" for Process Mining
-        "1" for Invoice Analysis
-        {{question}}
-
-        Return ONLY the exact number of the use case, no explanations.
-        """
         llm = OllamaLLM(model="qwen3:8b", temperature=0.0, enable_thinking=False)
         classifier = ChatPromptTemplate.from_messages([
             ("system", classification_prompt),
@@ -171,13 +169,15 @@ def classify_use_case(state: State) -> State:
         use_case = classifier.invoke({"question": question}).strip()
         use_case = remove_think_tags(use_case)
         if use_case not in ["0", "1"]:
-            logger.warning(f"Use case not valid detected: {use_case}")
+            logger.exception(f"Not valid use case detected, returning 0 by default: {use_case}")
             use_case = "0"  # by default
+        state["use_case"] = use_case
         return state
         
     except Exception as e:
-        logger.error(f"Error during classification node: {e}", exc_info=True)
-        raise
+        logger.exception(f"Error during classification node, returning usea case 0 by default: {e}", exc_info=True)
+        state["use_case"] = "0"
+        return state
 
 def execute_sql(state: State) -> State:
     db_conn = state["db_conn"]
@@ -215,21 +215,26 @@ def execute_sql(state: State) -> State:
 def generate_serious_answer(state: State) -> State:
     try:
         question = state["question"]
+        print(question)
         query_result = state["query_result"]
-        system = f""" /no_think
-        You are ✨SOFIA✨, an AI business assistant.
-        Your task is to:
-        1. Answer the user's **main question** using the SQL results from the **sub-questions**.
-        2. Provide business insights based on the query results.
-        Context: {question}
-        SQL Results: {query_result}
-        """
         llm = OllamaLLM(model="qwen3:8b", temperature=0.0, max_tokens=200, enable_thinking=False)
+        system= f"""
+        /no_think
+        You are ✨SOFIA✨, an AI business assistant. 
+        Your task is to answer the user's question based on the SQL query results.
+        Use the SQL query results to support your answer.
+        If the SQL query results are empty, indicate you were not able to processe the question.
+    
+        SQL query results:
+        {query_result}
+        """
+        # print(system)
         model = ChatPromptTemplate.from_messages([
             ("system", system),
             ("human", f"Question: {question}"),
         ]) | llm | StrOutputParser()
         response = model.invoke({})
+        print(response)
         state["final_answer"] = remove_think_tags(response)
         return state
     except Exception as e:  
@@ -239,9 +244,12 @@ def generate_serious_answer(state: State) -> State:
 
 def regenerate_query(state: State) -> State:
     try:
+
         error = state["query_result"]
         query = state["sql_query"]
-        repair_prompt = state["repair_prompt"]
+        use_case = state["use_case"]
+        repair_prompt= prompts_sql_generation[use_case][1]
+        
         llm = OllamaLLM(model="qwen3:8b", temperature=0.0, enable_thinking=False)
         print(f"⚠️ Fixing SQL query: {query}")
         print(f"🔍 Error encountered: {error}")
@@ -257,7 +265,7 @@ def regenerate_query(state: State) -> State:
         state["attempts"] += 1
         return state
     except Exception as e:  
-        logger.error(f"Error regenerating query: {e}")
+        logger.exception(f"Error regenerating query: {e}")
         state["attempts"] += 1
         return state
 
@@ -279,7 +287,7 @@ def summarize_results(state: State) -> State:
         state["query_result"] = summary
         return state
     except Exception as e:
-        logger.error(f"Error summarizing results: {e}")
+        logger.exception(f"Error summarizing results: {e}")
         state["query_result"] = "An error occurred while summarizing the results."
         return state
 
@@ -297,7 +305,7 @@ def execute_sql_router(state: State) -> str:
 
 
 # == SQL WORKER WORFLOW, COMPILE, AND EXECUTE ==
-def run_sql_workflow(question, db_conn, use_case, tokenizer, context, system_prompt, repair_prompt):
+def run_sql_workflow(question, db_conn, tokenizer, context):
     logger.info("Running run_sql_workflow")
     try:
         workflow = StateGraph(State)
@@ -309,6 +317,7 @@ def run_sql_workflow(question, db_conn, use_case, tokenizer, context, system_pro
         workflow.add_node("Answer Relevant Question", generate_serious_answer)
         workflow.add_node("Stops due to max Iterations", end_max_iterations)
         workflow.add_node("Summarizes Results", summarize_results)
+        
         workflow.set_entry_point("Classify use case")
         workflow.add_edge('Classify use case', "Generates SQL queries")
         workflow.add_edge("Generates SQL queries", "Executes SQL")
@@ -324,7 +333,7 @@ def run_sql_workflow(question, db_conn, use_case, tokenizer, context, system_pro
         workflow.set_finish_point("Answer Relevant Question")
         chain = workflow.compile()
     except Exception as e:
-        logger.error(f"Error compiling the SQL worker: {e}")
+        logger.exception(f"Error compiling the SQL worker: {e}")
         logger.warning(f"{e}")
         raise
     try:
@@ -333,18 +342,17 @@ def run_sql_workflow(question, db_conn, use_case, tokenizer, context, system_pro
             "db_conn": db_conn,
             "tokenizer": tokenizer,
             "context": context,
-            "system_prompt": system_prompt,
-            "repair_prompt": repair_prompt
         })
+        # print(result["query_result"])
         return result["final_answer"], result["query_result"]
     except Exception as e:
-        logger.error(f"Error executing SQL worker: {e}")
+        logger.exception(f"Error executing SQL worker: {e}")
         logger.warning(f"{e}")
         result = {'final_answer':None,
                  'query_result':None}
         # result["final_answer"] = "An error occurred while executing the SQL workflow."
         # result["query_result"] = "An error occurred while executing the SQL workflow."
-
+        # print(result["query_result"])
         return result["final_answer"], result["query_result"]
 
 __all__ = ["run_sql_workflow", "run_think_task", "remove_think_tags"]
