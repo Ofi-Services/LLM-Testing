@@ -120,7 +120,16 @@ def summarize_dataframe(df: pd.DataFrame, question_type: str) -> str:
             else:
                 summary += "ℹ️ No numeric column found for ranking."
         else:
-            summary += df.describe(include='all').to_string()
+            
+
+            summary += "🔸 Top 3 frequent values per column"
+            # print(df.columns)
+            for col in df.columns:                                     
+                # print(col)
+                top_vals = df[col].astype(str).value_counts().head(3).to_dict()
+                top_vals_str = str(top_vals).replace('{', '{{').replace('}', '}}')
+                summary += f"- {col}: {top_vals_str}\n"
+                    
         return summary
     except Exception as e:
         logger.exception(f"Error summarizing dataframe: {e}")
@@ -172,6 +181,7 @@ def classify_use_case(state: State) -> State:
             logger.exception(f"Not valid use case detected, returning 0 by default: {use_case}")
             use_case = "0"  # by default
         state["use_case"] = use_case
+        print(f"This is the use case {use_case}")
         return state
         
     except Exception as e:
@@ -215,18 +225,26 @@ def execute_sql(state: State) -> State:
 def generate_serious_answer(state: State) -> State:
     try:
         question = state["question"]
-        print(question)
         query_result = state["query_result"]
+        query= state["sql_query"]
+        print(query_result)
         llm = OllamaLLM(model="qwen3:8b", temperature=0.0, max_tokens=200, enable_thinking=False)
         system= f"""
         /no_think
-        You are ✨SOFIA✨, an AI business assistant. 
-        Your task is to answer the user's question based on the SQL query results.
+        You are a reasoning engine. Your task is to answer the user's question based on the SQL query results.
         Use the SQL query results to support your answer.
         If the SQL query results are empty, indicate you were not able to processe the question.
-    
+        
+        The query that was executed:
+        {query}
+
         SQL query results:
         {query_result}
+
+        If the query results doesn't explicitely answer the user question, simply summarize the results.
+        For example, if the SQL results are a list of data, just say how many rows were there.
+        NOTE:
+        Exact Match pattern is the same as a duplicate invoice.
         """
         # print(system)
         model = ChatPromptTemplate.from_messages([
@@ -234,8 +252,9 @@ def generate_serious_answer(state: State) -> State:
             ("human", f"Question: {question}"),
         ]) | llm | StrOutputParser()
         response = model.invoke({})
+        response = remove_think_tags(response)
         print(response)
-        state["final_answer"] = remove_think_tags(response)
+        state["final_answer"] = response
         return state
     except Exception as e:  
         logger.warning(f"Error generating serious answer: {e}")
