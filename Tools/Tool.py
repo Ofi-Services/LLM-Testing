@@ -203,7 +203,7 @@ def execute_sql_router(state: State) -> str:
 
 from langgraph.graph import StateGraph
 
-def run_sql_workflow(question, db_conn, use_case, tokenizer, context, system_prompt, repair_prompt):
+def run_sql_workflow(question, db_conn, tokenizer, context, system_prompt, repair_prompt):
     workflow = StateGraph(State)
     workflow.add_node("Generates SQL queries", convert_nl_to_sql)
     workflow.add_node("Executes SQL", execute_sql)

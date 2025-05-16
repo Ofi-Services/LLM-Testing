@@ -10,6 +10,8 @@ import pandas as pd
 from transformers import AutoTokenizer
 from huggingface_hub import login
 
+def remove_think_blocks(text: str) -> str:
+    return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
 
 def count_tokens(text: str,tokenizer) -> int:
     """
@@ -98,7 +100,7 @@ def convert_nl_to_sql(state: State):
     system = state["prompt"] 
     # Agregar información específica sobre case sensitivity y estructura de tablas
     # Añadir las notas adicionales al prompt del sistema
-    llm = OllamaLLM(model="mistral-nemo:latest", temperature="0.0")
+    llm = OllamaLLM(model="qwen3:4b", temperature="0.0")
  
     convert_prompt = ChatPromptTemplate.from_messages(
             [
@@ -110,6 +112,7 @@ def convert_nl_to_sql(state: State):
     
     print(f"Converting question to SQL {question}")
     result = sql_generator.invoke({"question": question})
+    result= remove_think_blocks(result)
     # Limpiar el código SQL eliminando los marcadores de bloque de código
     message = re.sub(r'^\s*```sql\s*|\s*```$', '', result.strip(), flags=re.IGNORECASE)
     # Corrección adicional para asegurar capitalización correcta de valores de confianza
@@ -212,9 +215,9 @@ def generate_serious_answer(state: State):
 
     # Concatenate each sub-question with its answer
     system = f"""
+    /no_think
     You are ✨SOFIA✨, an AI business assistant. 
     Your task is to answer the user's question based on the SQL query results.
-    Provide a compact and relevant answer, avoiding unnecessary details.
     Use the SQL query results to support your answer.
     If the SQL query results are empty, indicate you were not able to processe the question.
 
@@ -226,7 +229,7 @@ def generate_serious_answer(state: State):
     human_message = f"Question: {question}"
     
     # Use sOFIa to generate a response based on the SQL result
-    llm = OllamaLLM(model="phi4:latest", temperature="0.0", max_tokens=200)
+    llm = OllamaLLM(model="qwen3:4b", temperature="0.0", max_tokens=200)
     response = ChatPromptTemplate.from_messages([
         ("system", system),
         ("human", human_message),
@@ -234,6 +237,7 @@ def generate_serious_answer(state: State):
     
     # Generate and store the response
     message = response.invoke({})
+    message = remove_think_blocks(message)
     state["final_answer"] = message
     return state
 
@@ -253,11 +257,13 @@ def regenerate_query(state):
     error = state["query_result"]
     query = state["sql_query"]
 
-    llm = OllamaLLM(model="mistral:latest", temperature=0.0)
+    llm = OllamaLLM(model="qwen3:4b", temperature=0.0)
         
     print(f"⚠️ Fixing SQL query: {query}")
     print(f"🔍 Error encountered: {error}")
-    part1= f"""You are an expert in SQL for DuckDB.
+    part1= f"""
+            /no_think
+            You are an expert in SQL for DuckDB.
             Your task is to correct the following SQL query based on the error message.
 
             ### **Query to Fix:**
@@ -278,10 +284,10 @@ def regenerate_query(state):
         ])
 
     fixer = sql_fix_prompt | llm 
-        # Pass the query and error message to the SQL model for correction
+    # Pass the query and error message to the SQL model for correction
     corrected_query = fixer.invoke({"query": query, "error": error})
-        
-        # Extract only the SQL code from a markdown block like ```sql ... ``` 
+    corrected_query = remove_think_blocks(corrected_query)
+    # Extract only the SQL code from a markdown block like ```sql ... ``` 
     corrected_query = re.sub(r"```sql\s*(.*?)\s*```", r"\1", corrected_query.strip(), flags=re.DOTALL | re.IGNORECASE)
 
     state["sql_query"] = corrected_query
@@ -309,7 +315,7 @@ def summarize_results(state: dict) -> dict:
     count= count_tokens(result,tokenizer)
     # Check if the result is a list of dataframes and if any of them exceed 2000 tokens
     print(f"Token count: {count}")
-    if count <= 2000:
+    if count <= 4000:
 
         return state  # No need to summarize if the result is already concise
 
